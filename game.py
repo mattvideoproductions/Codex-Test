@@ -1,80 +1,120 @@
 import pygame
+import pymunk
+from pymunk.pygame_util import from_pygame
 
-# Basic constants
+# Window configuration
 SCREEN_WIDTH = 800
 SCREEN_HEIGHT = 600
-PLAYER_WIDTH = 50
-PLAYER_HEIGHT = 50
-PLAYER_SPEED = 5
-JUMP_STRENGTH = 15
-GRAVITY = 0.8
+PLAYER_SIZE = 50
+
+# Physics constants
+GRAVITY = 900
+IMPULSE_STRENGTH = 300
+
 
 class Player:
-    def __init__(self):
-        self.rect = pygame.Rect(100, SCREEN_HEIGHT - PLAYER_HEIGHT - 100, PLAYER_WIDTH, PLAYER_HEIGHT)
-        self.velocity_y = 0
-        self.on_ground = False
+    """Physics controlled player square."""
+
+    def __init__(self, space):
+        self.space = space
+        mass = 1
+        moment = pymunk.moment_for_box(mass, (PLAYER_SIZE, PLAYER_SIZE))
+        self.body = pymunk.Body(mass, moment)
+        # Start slightly above the ground
+        self.body.position = (100, SCREEN_HEIGHT - 100)
+        self.shape = pymunk.Poly.create_box(self.body, (PLAYER_SIZE, PLAYER_SIZE))
+        self.shape.friction = 0.7
+        self.shape.color = (255, 0, 0, 255)
+        space.add(self.body, self.shape)
+
+        # Mouse drag helpers
+        self.mouse_body = pymunk.Body(body_type=pymunk.Body.KINEMATIC)
+        self.drag_joint = None
+        self.prev_mouse_pos = None
 
     def handle_input(self, keys):
-        if keys[pygame.K_LEFT]:
-            self.rect.x -= PLAYER_SPEED
-        if keys[pygame.K_RIGHT]:
-            self.rect.x += PLAYER_SPEED
-        if keys[pygame.K_SPACE] and self.on_ground:
-            self.velocity_y = -JUMP_STRENGTH
-            self.on_ground = False
+        if keys[pygame.K_a]:
+            self.body.apply_impulse_at_local_point((-IMPULSE_STRENGTH, 0))
+        if keys[pygame.K_d]:
+            self.body.apply_impulse_at_local_point((IMPULSE_STRENGTH, 0))
+        if keys[pygame.K_w]:
+            self.body.apply_impulse_at_local_point((0, -IMPULSE_STRENGTH))
+        if keys[pygame.K_s]:
+            self.body.apply_impulse_at_local_point((0, IMPULSE_STRENGTH))
 
-    def apply_gravity(self):
-        self.velocity_y += GRAVITY
-        self.rect.y += self.velocity_y
+    def start_drag(self, pos):
+        """Begin dragging if the position is over the square."""
+        if self.shape.point_query(pos).distance > 0:
+            return
+        self.mouse_body.position = pos
+        self.prev_mouse_pos = pos
+        self.drag_joint = pymunk.PivotJoint(self.mouse_body, self.body, (0, 0), (0, 0))
+        self.drag_joint.max_force = 10000
+        self.space.add(self.drag_joint)
 
-    def collide_platforms(self, platforms):
-        # Simple collision with platforms (assume axis-aligned)
-        for platform in platforms:
-            if self.rect.colliderect(platform):
-                if self.velocity_y > 0:  # falling
-                    self.rect.bottom = platform.top
-                    self.velocity_y = 0
-                    self.on_ground = True
+    def update_drag(self, pos, dt):
+        if not self.drag_joint:
+            return
+        vel = (pos[0] - self.prev_mouse_pos[0], pos[1] - self.prev_mouse_pos[1])
+        self.mouse_body.velocity = (vel[0] / dt, vel[1] / dt)
+        self.mouse_body.position = pos
+        self.prev_mouse_pos = pos
 
-    def update(self, platforms):
-        self.apply_gravity()
-        self.collide_platforms(platforms)
+    def end_drag(self):
+        if not self.drag_joint:
+            return
+        # Apply the last velocity to fling the square
+        self.body.velocity = self.mouse_body.velocity
+        self.space.remove(self.drag_joint)
+        self.drag_joint = None
+        self.mouse_body.velocity = (0, 0)
 
-    def draw(self, surface):
-        pygame.draw.rect(surface, (255, 0, 0), self.rect)
+
+def create_ground(space, width, height):
+    body = space.static_body
+    ground = pymunk.Segment(body, (0, 40), (width, 40), 0)
+    ground.friction = 1.0
+    space.add(ground)
+    return ground
 
 
 def main():
     pygame.init()
-    screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))
-    pygame.display.set_caption("Platformer Skeleton")
+    screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT), pygame.RESIZABLE)
+    pygame.display.set_caption("Physics Example")
     clock = pygame.time.Clock()
 
-    player = Player()
+    space = pymunk.Space()
+    space.gravity = (0, GRAVITY)
 
-    # Simple ground platform
-    ground = pygame.Rect(0, SCREEN_HEIGHT - 40, SCREEN_WIDTH, 40)
-    platforms = [ground]
+    player = Player(space)
+    ground = create_ground(space, SCREEN_WIDTH, SCREEN_HEIGHT)
 
     running = True
     while running:
+        dt = clock.tick(60) / 1000.0
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 running = False
+            elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+                pos = from_pygame(event.pos, screen)
+                player.start_drag(pos)
+            elif event.type == pygame.MOUSEBUTTONUP and event.button == 1:
+                player.end_drag()
+            elif event.type == pygame.VIDEORESIZE:
+                screen = pygame.display.set_mode(event.size, pygame.RESIZABLE)
+
+        mouse_pos = from_pygame(pygame.mouse.get_pos(), screen)
+        player.update_drag(mouse_pos, dt)
 
         keys = pygame.key.get_pressed()
         player.handle_input(keys)
-        player.update(platforms)
 
-        # Drawing
-        screen.fill((135, 206, 235))  # sky blue background
-        for platform in platforms:
-            pygame.draw.rect(screen, (0, 255, 0), platform)
-        player.draw(screen)
+        space.step(dt)
 
+        screen.fill((135, 206, 235))
+        space.debug_draw(pymunk.pygame_util.DrawOptions(screen))
         pygame.display.flip()
-        clock.tick(60)
 
     pygame.quit()
 

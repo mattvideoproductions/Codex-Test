@@ -1,6 +1,7 @@
 import pygame
 import pymunk
 from pymunk.pygame_util import from_pygame
+from pymunk.vec2d import Vec2d
 
 # Window configuration
 SCREEN_WIDTH = 800
@@ -83,6 +84,13 @@ def create_test_area(space, width, height):
     return [floor, left, right, ceiling]
 
 
+def world_to_screen(p: Vec2d, camera: Vec2d, surface: pygame.Surface) -> tuple[int, int]:
+    """Convert world coordinates to screen coordinates using a camera offset."""
+    x = (p.x - camera.x) + surface.get_width() / 2
+    y = surface.get_height() / 2 - (p.y - camera.y)
+    return int(x), int(y)
+
+
 def main():
     pygame.init()
     screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT), pygame.RESIZABLE)
@@ -93,7 +101,11 @@ def main():
     space.gravity = (0, GRAVITY)
 
     player = Player(space)
-    create_test_area(space, SCREEN_WIDTH, SCREEN_HEIGHT)
+    segments = create_test_area(space, SCREEN_WIDTH, SCREEN_HEIGHT)
+
+    # Camera position starts centered on the player
+    camera_pos = Vec2d(player.body.position)
+    CAMERA_SMOOTHING = 5.0
 
     running = True
     while running:
@@ -115,10 +127,25 @@ def main():
         keys = pygame.key.get_pressed()
         player.handle_input(keys)
 
+        # Smooth camera follow
+        camera_pos += (player.body.position - camera_pos) * CAMERA_SMOOTHING * dt
+
         space.step(dt)
 
         screen.fill((135, 206, 235))
-        space.debug_draw(pymunk.pygame_util.DrawOptions(screen))
+
+        # Draw static segments
+        for segment in segments:
+            start = world_to_screen(segment.a, camera_pos, screen)
+            end = world_to_screen(segment.b, camera_pos, screen)
+            pygame.draw.line(screen, (0, 0, 0), start, end, 2)
+
+        # Draw the player square
+        verts = [world_to_screen(player.body.position + v.rotated(player.body.angle),
+                                 camera_pos, screen)
+                 for v in player.shape.get_vertices()]
+        pygame.draw.polygon(screen, (255, 0, 0), verts)
+
         pygame.display.flip()
 
     pygame.quit()

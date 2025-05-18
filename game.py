@@ -90,7 +90,7 @@ def main():
     clock = pygame.time.Clock()
 
     space = pymunk.Space()
-    space.gravity = (0, -GRAVITY)
+    space.gravity = (0, GRAVITY)
 
     player = Player(space)
     create_test_area(space, SCREEN_WIDTH, SCREEN_HEIGHT)

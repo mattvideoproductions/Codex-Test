@@ -1,5 +1,7 @@
 # Platformer Skeleton
 
+> **A MattVidPro AI-coding test** (made with OpenAI Codex). From the [MattVidPro YouTube channel](https://www.youtube.com/@MattVidPro).
+
 This repository contains a very small prototype of a platformer-style game using [Pygame](https://www.pygame.org/). It is meant as a starting point for further development.
 
 ## Requirements
